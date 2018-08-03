@@ -1,7 +1,6 @@
 # external libs
-
 import time
-
+import os
 import keras
 from keras.layers import Convolution2D
 from keras.layers import Dropout, Flatten, Dense
@@ -9,6 +8,7 @@ from keras.layers import Input
 from keras.models import Model
 from sklearn.model_selection import train_test_split
 import argparse
+import subprocess
 
 # internal imports
 from data_access.image_repository import get_meta_by_capture
@@ -18,8 +18,8 @@ import data_access.model_repository as model_repository
 BATCH_SIZE = 128
 
 
-def load_from_repository(dataset_name):
-    return get_meta_by_capture(dataset_name)
+def load_from_repository(capture_name):
+    return get_meta_by_capture(capture_name)
 
 
 def get_model():
@@ -78,29 +78,32 @@ def main():
                                                patience=5,
                                                verbose=True,
                                                mode='auto')
+    load_start = time.time()
+    X, y = load_from_repository(dataset_name)
+    load_end = time.time()
 
-    data = load_from_repository()
-    print('total records', len(data))
+    print('load time in minutes:', (load_end - load_start) / 60)
+    print('total records', len(X))
 
-    train_samples, validation_samples = train_test_split(data, test_size=0.2)
+    train_x, val_x, train_y, val_y = train_test_split(X, y, test_size=0.2)
 
-    train_gen = generator(train_samples, BATCH_SIZE)
-    val_gen = generator(validation_samples, BATCH_SIZE)
+    num_to_train = len(train_x)
+    num_to_validate = len(val_x)
+
+    print('total train records:', num_to_validate)
+    print('total validation records:', num_to_validate)
+
+    train_gen = generator(train_x, train_y, BATCH_SIZE)
+    val_gen = generator(val_x, val_y, BATCH_SIZE)
 
     model = get_model()
     compile_model(model)
     model.summary()
 
-    num_to_train = len(train_samples)
-    num_to_validate = len(validation_samples)
-
-    print('total train records:', num_to_validate)
-    print('total validation records:', num_to_validate)
-
     history = model.fit_generator(
         train_gen,
         steps_per_epoch=num_to_train // BATCH_SIZE,
-        epochs=1,
+        epochs=10,
         verbose=True,
         validation_data=val_gen,
         callbacks=[early_stop],
@@ -109,25 +112,38 @@ def main():
         use_multiprocessing=False)
 
     print('saving model')
-    model_name = model_repository.get_filename('model')
+    model_name = model_repository.get_filename(dataset_name)
     model.save(model_name)
     model_repository.save_model(model_name)
     print('model saved {}'.format(model_name))
 
 
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--dataset-name',
                         help='name of dataset',
-                        default='model',
+                        type=str)
+
+    parser.add_argument('--job-dir',
+                        help='ml engine workspace',
+                        default=None,
                         type=str)
 
     args = parser.parse_args()
     dataset_name = args.dataset_name
 
+    file_copy_start = time.time()
+    if not os.path.exists(dataset_name):
+        os.makedirs(dataset_name)
+    subprocess.call(['gsutil', '-m', 'cp', '-r', 'gs://sacred-reality-201417-mlengine/data/{}/*'.format(dataset_name), dataset_name])
+    file_copy_end = time.time()
+
+    print('file copy ET in Minutes:', (file_copy_end - file_copy_start) / 60)
+
     start = time.time()
     main()
     end = time.time()
 
-    print('ET in seconds:', end - start)
+    print('Training ET in minutes:', (end - start) / 60)

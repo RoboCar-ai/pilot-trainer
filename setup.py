@@ -6,7 +6,8 @@ REQUIRED_PACKAGES = ['Keras==2.1.6',
                      'pillow',
                      'tensorflow',
                      'numpy',
-                     'scikit-learn']
+                     'scikit-learn',
+                     'opencv-python']
 
 setup(
     name='robocar pilot trainer',
